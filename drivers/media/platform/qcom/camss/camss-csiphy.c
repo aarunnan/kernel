@@ -330,9 +330,12 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
 	const bool cphy = (csiphy->cfg.combo_mode == PHY_TYPE_CPHY);
+	struct csiphy_lanes_cfg *lncfg = &csiphy->cfg.csi2->lane_cfg;
+	struct phy_configure_opts_mipi_lane *lane_map;
 	union phy_configure_opts opts = { 0 };
 	struct device *dev = csiphy->camss->dev;
 	s64 link_freq;
+	unsigned int i;
 	int ret;
 
 	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, cphy);
@@ -354,15 +357,20 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
 						       &opts.mipi_cphy);
 		if (ret)
 			return ret;
-		/* Task 6: per-lane pos/pol */
 		phy_set_mode(csiphy->phy, PHY_MODE_MIPI_CPHY);
 	} else {
 		ret = phy_mipi_dphy_get_default_config_for_hsclk(link_freq, num_lanes,
 								 &opts.mipi_dphy);
 		if (ret)
 			return ret;
-		/* Task 6: per-lane pos/pol */
 		phy_set_mode(csiphy->phy, PHY_MODE_MIPI_DPHY);
+	}
+
+	/* Pass the real per-lane physical position/polarity to the provider. */
+	lane_map = cphy ? opts.mipi_cphy.lane_map : opts.mipi_dphy.lane_map;
+	for (i = 0; i < num_lanes && i < PHY_MIPI_MAX_LANES; i++) {
+		lane_map[i].pos = lncfg->data[i].pos;
+		lane_map[i].pol = lncfg->data[i].pol;
 	}
 
 	ret = phy_configure(csiphy->phy, &opts);
