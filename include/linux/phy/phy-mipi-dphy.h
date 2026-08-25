@@ -6,6 +6,22 @@
 #ifndef __PHY_MIPI_DPHY_H_
 #define __PHY_MIPI_DPHY_H_
 
+#define PHY_MIPI_MAX_LANES 8
+
+/**
+ * struct phy_configure_opts_mipi_lane - per-lane physical mapping
+ * @pos: physical lane position
+ * @pol: lane polarity (0 = normal)
+ *
+ * An all-zero lane_map (every entry pos == 0 && pol == 0) is "unset": a
+ * provider treats it as identity (pos = i, pol = 0). Consumers that
+ * zero-init their opts and never fill lane_map are therefore unaffected.
+ */
+struct phy_configure_opts_mipi_lane {
+	unsigned char pos;
+	unsigned char pol;
+};
+
 /**
  * struct phy_configure_opts_mipi_dphy - MIPI D-PHY configuration set
  *
@@ -273,6 +289,14 @@ struct phy_configure_opts_mipi_dphy {
 	 * lane 0, used for the transmissions.
 	 */
 	unsigned char		lanes;
+
+	/**
+	 * @lane_map:
+	 *
+	 * Per-lane physical position/polarity. All-zero means unset;
+	 * providers then use identity (pos = i, pol = 0).
+	 */
+	struct phy_configure_opts_mipi_lane	lane_map[PHY_MIPI_MAX_LANES];
 };
 
 int phy_mipi_dphy_get_default_config(unsigned long pixel_clock,

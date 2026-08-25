@@ -25,6 +25,15 @@ config GENERIC_PHY_MIPI_DPHY
 	  Provides a number of helpers a core functions for MIPI D-PHY
 	  drivers to us.
 
+config GENERIC_PHY_MIPI_CPHY
+	bool
+	select GENERIC_PHY
+	help
+	  Generic MIPI C-PHY support.
+
+	  Provides a set of common functions that can be used by PHY
+	  drivers that support the MIPI Alliance's C-PHY protocol.
+
 config PHY_LPC18XX_USB_OTG
 	tristate "NXP LPC18xx/43xx SoC USB OTG PHY driver"
 	depends on OF && (ARCH_LPC18XX || COMPILE_TEST)
