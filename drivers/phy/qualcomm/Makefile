@@ -11,6 +11,9 @@ phy-qcom-mipi-csi2-objs			+= phy-qcom-mipi-csi2-core.o \
 					   phy-qcom-mipi-csi2-3ph-dphy.o
 obj-$(CONFIG_PHY_QCOM_MIPI_CSI2)	+= phy-qcom-mipi-csi2.o
 
+qcom-csiphy-objs			+= phy-qcom-csiphy.o phy-qcom-csiphy-2ph-1-0.o phy-qcom-csiphy-3ph-1-0.o
+obj-$(CONFIG_PHY_QCOM_CSIPHY)		+= qcom-csiphy.o
+
 obj-$(CONFIG_PHY_QCOM_PCIE2)		+= phy-qcom-pcie2.o
 
 obj-$(CONFIG_PHY_QCOM_QMP_COMBO)	+= phy-qcom-qmp-combo.o phy-qcom-qmp-usbc.o

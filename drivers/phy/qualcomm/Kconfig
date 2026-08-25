@@ -41,6 +41,18 @@ config PHY_QCOM_MIPI_CSI2
 	  camera sensors to the CSI Decoder in the Qualcomm Camera Subsystem
 	  CAMSS.
 
+config PHY_QCOM_CSIPHY
+	tristate "Qualcomm CSIPHY MIPI receiver driver"
+	depends on OF && (ARCH_QCOM || COMPILE_TEST)
+	select GENERIC_PHY
+	select GENERIC_PHY_MIPI_DPHY
+	select GENERIC_PHY_MIPI_CPHY
+	help
+	  Enable this to support the Qualcomm CSIPHY MIPI CSI-2 receiver PHY
+	  found in the camera subsystem of Qualcomm SoCs. This provides the
+	  D-PHY/C-PHY physical layer for the CAMSS driver via the generic PHY
+	  framework.
+
 config PHY_QCOM_IPQ4019_USB
 	tristate "Qualcomm IPQ4019 USB PHY driver"
 	depends on OF && (ARCH_QCOM || COMPILE_TEST)
