@@ -15,6 +15,8 @@
 #include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/phy/phy.h>
+#include <linux/phy/phy-mipi-dphy.h>
+#include <linux/phy/phy-mipi-cphy.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <media/media-entity.h>
@@ -147,7 +149,7 @@ static int csiphy_set_clock_rates_legacy(struct csiphy_device *csiphy)
 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
 
-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
+	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, false);
 	if (link_freq < 0)
 		link_freq  = 0;
 
@@ -274,7 +276,7 @@ static int csiphy_stream_on_legacy(struct csiphy_device *csiphy)
 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
 	u8 val;
 
-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
+	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, false);
 
 	if (link_freq < 0) {
 		dev_err(csiphy->camss->dev,
@@ -327,35 +329,49 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
 	u8 bpp = csiphy_get_bpp(csiphy->res->formats->formats, csiphy->res->formats->nformats,
 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
-	struct phy_configure_opts_mipi_dphy *dphy_cfg;
-	union phy_configure_opts dphy_opts = { 0 };
+	const bool cphy = (csiphy->cfg.combo_mode == PHY_TYPE_CPHY);
+	union phy_configure_opts opts = { 0 };
 	struct device *dev = csiphy->camss->dev;
 	s64 link_freq;
 	int ret;
 
-	dphy_cfg = &dphy_opts.mipi_dphy;
-
-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
-
+	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, cphy);
 	if (link_freq < 0) {
 		dev_err(dev,
 			"Cannot get CSI2 transmitter's link frequency\n");
 		return -EINVAL;
 	}
 
-	phy_mipi_dphy_get_default_config_for_hsclk(link_freq, num_lanes, dphy_cfg);
+	if (cphy) {
+		u64 pixel_clock;
 
-	phy_set_mode(csiphy->phy, PHY_MODE_MIPI_DPHY);
-	ret = phy_configure(csiphy->phy, &dphy_opts);
+		ret = camss_get_pixel_clock(&csiphy->subdev.entity, &pixel_clock);
+		if (ret) {
+			dev_err(dev, "Cannot get CSI2 transmitter's pixel clock\n");
+			return ret;
+		}
+		ret = phy_mipi_cphy_get_default_config(pixel_clock, bpp, num_lanes,
+						       &opts.mipi_cphy);
+		if (ret)
+			return ret;
+		/* Task 6: per-lane pos/pol */
+		phy_set_mode(csiphy->phy, PHY_MODE_MIPI_CPHY);
+	} else {
+		ret = phy_mipi_dphy_get_default_config_for_hsclk(link_freq, num_lanes,
+								 &opts.mipi_dphy);
+		if (ret)
+			return ret;
+		/* Task 6: per-lane pos/pol */
+		phy_set_mode(csiphy->phy, PHY_MODE_MIPI_DPHY);
+	}
+
+	ret = phy_configure(csiphy->phy, &opts);
 	if (ret) {
-		dev_err(dev, "failed to configure MIPI D-PHY\n");
-		goto error;
+		dev_err(dev, "failed to configure PHY\n");
+		return ret;
 	}
 
 	return phy_power_on(csiphy->phy);
-
-error:
-	return ret;
 }
 
 /*
@@ -818,7 +834,7 @@ int msm_csiphy_subdev_init(struct camss *camss,
 		goto put_np;
 
 	combo_mode = args.args[0];
-	if (combo_mode != PHY_TYPE_DPHY) {
+	if (combo_mode != PHY_TYPE_DPHY && combo_mode != PHY_TYPE_CPHY) {
 		dev_err(dev, "%s mode %d not supported\n", csiphy->name, combo_mode);
 		ret = -EOPNOTSUPP;
 		goto put_np;
