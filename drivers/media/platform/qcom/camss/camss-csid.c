@@ -544,8 +544,9 @@ static int csid_set_clock_rates(struct csid_device *csid)
 
 	fmt = csid_get_fmt_entry(csid->res->formats->formats, csid->res->formats->nformats,
 				 csid->fmt[MSM_CSIPHY_PAD_SINK].code);
+	/* TODO Task 4: real cphy from phy_sel */
 	link_freq = camss_get_link_freq(&csid->subdev.entity, fmt->bpp,
-					csid->phy.lane_cnt);
+					csid->phy.lane_cnt, false);
 	if (link_freq < 0)
 		link_freq = 0;
 
