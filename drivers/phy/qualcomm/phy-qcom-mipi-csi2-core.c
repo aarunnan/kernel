@@ -12,6 +12,7 @@
 #include <linux/pm_opp.h>
 #include <linux/phy/phy.h>
 #include <linux/phy/phy-mipi-dphy.h>
+#include <linux/phy/phy-mipi-cphy.h>
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
@@ -76,11 +77,10 @@ phy_qcom_mipi_csi2_set_clock_rates(struct mipi_csi2phy_device *csi2phy,
 	return 0;
 }
 
-static int phy_qcom_mipi_csi2_configure(struct phy *phy,
-					union phy_configure_opts *opts)
+static int
+phy_qcom_mipi_csi2_configure_dphy(struct mipi_csi2phy_device *csi2phy,
+				  struct phy_configure_opts_mipi_dphy *dphy_cfg)
 {
-	struct mipi_csi2phy_device *csi2phy = phy_get_drvdata(phy);
-	struct phy_configure_opts_mipi_dphy *dphy_cfg = &opts->mipi_dphy;
 	struct mipi_csi2phy_stream_cfg *stream_cfg = &csi2phy->stream_cfg;
 	int ret;
 	int i;
@@ -106,12 +106,51 @@ static int phy_qcom_mipi_csi2_configure(struct phy *phy,
 	return 0;
 }
 
+static int
+phy_qcom_mipi_csi2_configure_cphy(struct mipi_csi2phy_device *csi2phy,
+				  struct phy_configure_opts_mipi_cphy *cphy_cfg)
+{
+	struct mipi_csi2phy_stream_cfg *stream_cfg = &csi2phy->stream_cfg;
+	int ret;
+
+	ret = phy_mipi_cphy_config_validate(cphy_cfg);
+	if (ret)
+		return ret;
+
+	if (cphy_cfg->lanes < 1 || cphy_cfg->lanes > CSI2_MAX_DATA_LANES)
+		return -EINVAL;
+
+	stream_cfg->link_freq = cphy_cfg->hs_clk_rate;
+	stream_cfg->num_data_lanes = cphy_cfg->lanes;
+
+	return 0;
+}
+
+static int phy_qcom_mipi_csi2_configure(struct phy *phy,
+					union phy_configure_opts *opts)
+{
+	struct mipi_csi2phy_device *csi2phy = phy_get_drvdata(phy);
+
+	if (phy_get_mode(phy) == PHY_MODE_MIPI_CPHY)
+		return phy_qcom_mipi_csi2_configure_cphy(csi2phy, &opts->mipi_cphy);
+
+	return phy_qcom_mipi_csi2_configure_dphy(csi2phy, &opts->mipi_dphy);
+}
+
 static int phy_qcom_mipi_csi2_power_on(struct phy *phy)
 {
 	struct mipi_csi2phy_device *csi2phy = phy_get_drvdata(phy);
-	const struct mipi_csi2phy_hw_ops *ops = csi2phy->soc_cfg->ops;
+	const struct mipi_csi2phy_hw_ops *ops;
 	struct device *dev = &phy->dev;
 	int ret;
+
+	if (csi2phy->phy_mode == PHY_QCOM_CSI2_MODE_CPHY)
+		ops = csi2phy->soc_cfg->ops_cphy;
+	else
+		ops = csi2phy->soc_cfg->ops;
+
+	if (!ops)
+		return -EOPNOTSUPP;
 
 	ret = regulator_bulk_enable(csi2phy->soc_cfg->num_supplies,
 				    csi2phy->supplies);
@@ -170,7 +209,8 @@ static struct phy *qcom_csi2_phy_xlate(struct device *dev,
 {
 	struct mipi_csi2phy_device *csi2phy = dev_get_drvdata(dev);
 
-	if (args->args[0] != PHY_QCOM_CSI2_MODE_DPHY) {
+	if (args->args[0] != PHY_QCOM_CSI2_MODE_DPHY &&
+	    args->args[0] != PHY_QCOM_CSI2_MODE_CPHY) {
 		dev_err(csi2phy->dev, "mode %d -EOPNOTSUPP\n", args->args[0]);
 		return ERR_PTR(-EOPNOTSUPP);
 	}
