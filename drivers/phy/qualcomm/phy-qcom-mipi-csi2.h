@@ -46,15 +46,46 @@ struct mipi_csi2phy_lane_regs {
 	const u32 param_type;
 };
 
+/**
+ * struct mipi_csi2phy_datarate_regs - bandwidth-keyed register overrides
+ * @bandwidth: data rate, in bits/s, this entry applies to
+ * @reg_array: register writes to apply on top of the base init_seq
+ * @reg_array_size: number of entries in reg_array
+ *
+ * Some C-PHY configurations need small register tweaks (impedance,
+ * deskew, timing calibration) that vary with the link data rate. A
+ * mipi_csi2phy_device_regs may carry an array of these, sorted by
+ * ascending bandwidth; the hw_ops picks the first entry whose
+ * bandwidth is >= the configured link rate (falling back to the
+ * highest entry if none qualifies).
+ */
+struct mipi_csi2phy_datarate_regs {
+	u64 bandwidth;
+	const struct mipi_csi2phy_lane_regs *reg_array;
+	size_t reg_array_size;
+};
+
 struct mipi_csi2phy_device_regs {
 	const struct mipi_csi2phy_lane_regs *init_seq;
 	const int lane_array_size;
 	const u32 common_regs_offset;
+
+	/* Optional: NULL/0 when no bandwidth-tier overrides apply. */
+	const struct mipi_csi2phy_datarate_regs *datarate_regs;
+	const size_t num_datarate_regs;
 };
 
 struct mipi_csi2phy_soc_cfg {
+	/* D-PHY mode (PHY_QCOM_CSI2_MODE_DPHY). Always required. */
 	const struct mipi_csi2phy_hw_ops *ops;
 	const struct mipi_csi2phy_device_regs reg_info;
+
+	/*
+	 * C-PHY mode (PHY_QCOM_CSI2_MODE_CPHY). NULL/zero-initialized on
+	 * SoCs that only support D-PHY.
+	 */
+	const struct mipi_csi2phy_hw_ops *ops_cphy;
+	const struct mipi_csi2phy_device_regs reg_info_cphy;
 
 	const char ** const supply_names;
 	const unsigned int num_supplies;
