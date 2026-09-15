@@ -34,30 +34,33 @@ phy_qcom_mipi_csi2_set_clock_rates(struct mipi_csi2phy_device *csi2phy,
 	long timer_rate;
 	int ret;
 
-	opp = dev_pm_opp_find_freq_ceil(dev, &opp_rate);
-	if (IS_ERR(opp)) {
-		dev_err(csi2phy->dev, "Couldn't find ceiling for %lld Hz\n",
-			link_freq);
-		return PTR_ERR(opp);
-	}
+	/* SoCs with no genpd/OPP usage skip the OPP-driven perf-state path. */
+	if (csi2phy->num_pds) {
+		opp = dev_pm_opp_find_freq_ceil(dev, &opp_rate);
+		if (IS_ERR(opp)) {
+			dev_err(csi2phy->dev, "Couldn't find ceiling for %lld Hz\n",
+				link_freq);
+			return PTR_ERR(opp);
+		}
 
-	for (int i = 0; i < csi2phy->num_pds; i++) {
-		unsigned int perf = dev_pm_opp_get_required_pstate(opp, i);
+		for (int i = 0; i < csi2phy->num_pds; i++) {
+			unsigned int perf = dev_pm_opp_get_required_pstate(opp, i);
 
-		ret = dev_pm_genpd_set_performance_state(csi2phy->pds[i], perf);
+			ret = dev_pm_genpd_set_performance_state(csi2phy->pds[i], perf);
+			if (ret) {
+				dev_err(csi2phy->dev, "Couldn't set perf state %u\n",
+					perf);
+				dev_pm_opp_put(opp);
+				return ret;
+			}
+		}
+		dev_pm_opp_put(opp);
+
+		ret = dev_pm_opp_set_rate(dev, opp_rate);
 		if (ret) {
-			dev_err(csi2phy->dev, "Couldn't set perf state %u\n",
-				perf);
-			dev_pm_opp_put(opp);
+			dev_err(csi2phy->dev, "dev_pm_opp_set_rate() fail\n");
 			return ret;
 		}
-	}
-	dev_pm_opp_put(opp);
-
-	ret = dev_pm_opp_set_rate(dev, opp_rate);
-	if (ret) {
-		dev_err(csi2phy->dev, "dev_pm_opp_set_rate() fail\n");
-		return ret;
 	}
 
 	timer_rate = clk_round_rate(csi2phy->timer_clk, link_freq / 4);
@@ -204,20 +207,19 @@ static int phy_qcom_mipi_csi2_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	num_pds = csi2phy->soc_cfg->num_genpd_names;
-	if (!num_pds)
-		return -EINVAL;
+	if (num_pds) {
+		csi2phy->pds = devm_kzalloc(dev, sizeof(*csi2phy->pds) * num_pds, GFP_KERNEL);
+		if (!csi2phy->pds)
+			return -ENOMEM;
 
-	csi2phy->pds = devm_kzalloc(dev, sizeof(*csi2phy->pds) * num_pds, GFP_KERNEL);
-	if (!csi2phy->pds)
-		return -ENOMEM;
-
-	for (i = 0; i < num_pds; i++) {
-		csi2phy->pds[i] = dev_pm_domain_attach_by_name(dev,
-							       csi2phy->soc_cfg->genpd_names[i]);
-		if (IS_ERR(csi2phy->pds[i])) {
-			return dev_err_probe(dev, PTR_ERR(csi2phy->pds[i]),
-					     "Failed to attach %s\n",
-					     csi2phy->soc_cfg->genpd_names[i]);
+		for (i = 0; i < num_pds; i++) {
+			csi2phy->pds[i] = dev_pm_domain_attach_by_name(dev,
+								       csi2phy->soc_cfg->genpd_names[i]);
+			if (IS_ERR(csi2phy->pds[i])) {
+				return dev_err_probe(dev, PTR_ERR(csi2phy->pds[i]),
+						     "Failed to attach %s\n",
+						     csi2phy->soc_cfg->genpd_names[i]);
+			}
 		}
 	}
 	csi2phy->num_pds = num_pds;
