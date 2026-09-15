@@ -91,5 +91,7 @@ struct mipi_csi2phy_device {
 };
 
 extern const struct mipi_csi2phy_soc_cfg mipi_csi2_dphy_4nm_x1e;
+extern const struct mipi_csi2phy_soc_cfg mipi_csi2_dphy_sa8775p;
+extern const struct mipi_csi2phy_hw_ops phy_qcom_mipi_csi2_ops_3ph_1_0;
 
 #endif /* __PHY_QCOM_MIPI_CSI2_H__ */
