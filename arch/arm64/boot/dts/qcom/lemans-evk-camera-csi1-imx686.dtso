@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ *
+ * IMX686 C-PHY camera on JCAM1 / CSI1 (csiphy1) for lemans-evk.
+ *
+ * The base lemans.dtsi wires camss as a common-PHY consumer with all four
+ * CSIPHYs in D-PHY mode (phys = <&csiphy0..3 PHY_QCOM_CSI2_MODE_DPHY>). This
+ * overlay re-declares the camss phys list so csiphy1 is driven in C-PHY mode
+ * (the others stay D-PHY), enables csiphy1 and camss, and wires the imx686
+ * sensor on cci1 with a MEDIA_BUS_TYPE_CSI2_CPHY endpoint (3 data lanes,
+ * 952 MHz symbol rate).
+ *
+ * This overlay is mutually exclusive with lemans-evk-camera-csi1-imx577.dtso:
+ * both use csiphy1 / cci1, in different phase modes, so exactly one may be
+ * applied at a time.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/qcom,sa8775p-camcc.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/media/video-interfaces.h>
+#include <dt-bindings/phy/phy-qcom-mipi-csi2.h>
+
+&{/} {
+	vreg_cam1_1p8: regulator-cam1 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_cam1";
+		startup-delay-us = <10000>;
+		enable-active-high;
+		gpio = <&pmm8654au_0_gpios 8 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&csiphy1 {
+	vdda-pll-supply = <&vreg_l1c>;
+	vdda-phy-supply = <&vreg_l4a>;
+
+	status = "okay";
+};
+
+&camss {
+	vdda-pll-supply = <&vreg_l1c>;
+	vdda-phy-supply = <&vreg_l4a>;
+
+	/* csiphy1 (CSI1/JCAM1) in C-PHY mode; the other CSIPHYs stay D-PHY. */
+	phys = <&csiphy0 PHY_QCOM_CSI2_MODE_DPHY>,
+	       <&csiphy1 PHY_QCOM_CSI2_MODE_CPHY>,
+	       <&csiphy2 PHY_QCOM_CSI2_MODE_DPHY>,
+	       <&csiphy3 PHY_QCOM_CSI2_MODE_DPHY>;
+
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			csiphy1_ep: endpoint@0 {
+				reg = <0>;
+				clock-lanes = <7>;
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				data-lanes = <0 1 2>;
+				remote-endpoint = <&imx686_ep1>;
+			};
+		};
+	};
+};
+
+&cci1 {
+	pinctrl-0 = <&cci1_0_default>;
+	pinctrl-1 = <&cci1_0_sleep>;
+
+	status = "okay";
+};
+
+&cci1_i2c0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	camera@1a {
+		compatible = "sony,imx686";
+		reg = <0x1a>;
+
+		reset-gpios = <&tlmm 133 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam1_default>;
+		pinctrl-names = "default";
+
+		clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		dovdd-supply = <&vreg_s4a>;
+		avdd-supply = <&vreg_cam1_1p8>;
+
+		port {
+			imx686_ep1: endpoint {
+				clock-lanes = <7>;
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				link-frequencies = /bits/ 64 <952000000>;
+				data-lanes = <0 1 2>;
+				remote-endpoint = <&csiphy1_ep>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	cam1_default: cam1-default-state {
+		mclk-pins {
+			pins = "gpio73";
+			function = "cam_mclk";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		rst-pins {
+			pins = "gpio133";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+};

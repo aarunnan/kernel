@@ -59,10 +59,13 @@ lemans-evk-sd-card-dtbs := lemans-evk.dtb lemans-evk-sd-card.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += lemans-evk-sd-card.dtb
 
 lemans-evk-camera-csi1-imx577-dtbs	:= lemans-evk.dtb lemans-evk-camera-csi1-imx577.dtbo
+lemans-evk-camera-csi1-imx686-dtbs	:= lemans-evk.dtb lemans-evk-camera-csi1-imx686.dtbo
 lemans-evk-camera-dtbs	:= lemans-evk.dtb lemans-evk-camera.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx577.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx577.dtbo
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx686.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx686.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera.dtbo
 
