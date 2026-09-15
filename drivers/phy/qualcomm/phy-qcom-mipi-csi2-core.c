@@ -123,6 +123,14 @@ phy_qcom_mipi_csi2_configure_cphy(struct mipi_csi2phy_device *csi2phy,
 	stream_cfg->link_freq = cphy_cfg->hs_clk_rate;
 	stream_cfg->num_data_lanes = cphy_cfg->lanes;
 
+	/*
+	 * Per-trio lane position/polarity mapping (stream_cfg->lane_cfg) is
+	 * intentionally left unpopulated here: it depends on how a given
+	 * SoC's real C-PHY register data maps trios onto lane_cfg, which
+	 * does not exist yet for any soc_cfg. Populate this once a soc_cfg
+	 * sets ops_cphy/reg_info_cphy to non-NULL data that defines it.
+	 */
+
 	return 0;
 }
 
@@ -131,7 +139,7 @@ static int phy_qcom_mipi_csi2_configure(struct phy *phy,
 {
 	struct mipi_csi2phy_device *csi2phy = phy_get_drvdata(phy);
 
-	if (phy_get_mode(phy) == PHY_MODE_MIPI_CPHY)
+	if (csi2phy->phy_mode == PHY_QCOM_CSI2_MODE_CPHY)
 		return phy_qcom_mipi_csi2_configure_cphy(csi2phy, &opts->mipi_cphy);
 
 	return phy_qcom_mipi_csi2_configure_dphy(csi2phy, &opts->mipi_dphy);
@@ -149,8 +157,11 @@ static int phy_qcom_mipi_csi2_power_on(struct phy *phy)
 	else
 		ops = csi2phy->soc_cfg->ops;
 
-	if (!ops)
+	if (!ops) {
+		dev_err(dev, "mode %d not supported by this SoC's soc_cfg\n",
+			csi2phy->phy_mode);
 		return -EOPNOTSUPP;
+	}
 
 	ret = regulator_bulk_enable(csi2phy->soc_cfg->num_supplies,
 				    csi2phy->supplies);
