@@ -1,0 +1,13 @@
+config VIDEO_IMX686
+       tristate "Sony IMX686 sensor support"
+       depends on OF_GPIO
+       depends on VIDEO_V4L2_I2C
+       select VIDEO_V4L2_SUBDEV_API
+       select MEDIA_CONTROLLER
+       select V4L2_FWNODE
+       help
+         This is a Video4Linux2 sensor driver for the Sony
+         IMX686 camera.
+
+         To compile this driver as a module, choose M here: the
+         module will be called imx686.
