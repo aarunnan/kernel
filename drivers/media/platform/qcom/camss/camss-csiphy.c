@@ -316,29 +316,26 @@ static void csiphy_stream_off_legacy(struct csiphy_device *csiphy)
 }
 
 /*
- * csiphy_stream_on - Enable streaming on CSIPHY module
+ * csiphy_configure_and_power_on - Configure and power on the CSIPHY
  * @csiphy: CSIPHY device
  *
- * Helper function to enable streaming on CSIPHY module.
- * Main configuration of CSIPHY module is also done here.
+ * Helper function to power on and configure the CSIPHY generic-PHY
+ * provider, called from csiphy_set_power().
  *
  * Return 0 on success or a negative error code otherwise
  */
-static int csiphy_stream_on(struct csiphy_device *csiphy)
+static int csiphy_configure_and_power_on(struct csiphy_device *csiphy)
 {
 	u8 bpp = csiphy_get_bpp(csiphy->res->formats->formats, csiphy->res->formats->nformats,
 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
 	struct csiphy_lanes_cfg *lncfg = &csiphy->cfg.csi2->lane_cfg;
-	struct phy_configure_opts_mipi_dphy *dphy_cfg;
-	union phy_configure_opts dphy_opts = { 0 };
+	union phy_configure_opts phy_opts = { 0 };
 	struct device *dev = csiphy->camss->dev;
 	u8 num_lanes = lncfg->num_data;
 	const bool cphy = (lncfg->phy_cfg == V4L2_MBUS_CSI2_CPHY);
 	s64 link_freq;
 	int i;
 	int ret;
-
-	dphy_cfg = &dphy_opts.mipi_dphy;
 
 	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, cphy);
 
@@ -348,24 +345,56 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
 		return -EINVAL;
 	}
 
-	phy_mipi_dphy_get_default_config_for_hsclk(link_freq, num_lanes, dphy_cfg);
+	if (cphy) {
+		struct phy_configure_opts_mipi_cphy *cphy_cfg = &phy_opts.mipi_cphy;
 
-	/* Set clock lane id and polarity */
-	dphy_cfg->clock_lane_position = lncfg->clk.pos;
-	dphy_cfg->clock_lane_polarity = lncfg->clk.pol;
+		phy_mipi_cphy_get_default_config_for_hsclk(link_freq, num_lanes,
+							   cphy_cfg);
 
-	/* Set data lane_mask and lane_polarities */
-	for (i = 0; i < num_lanes; i++) {
-		dphy_cfg->lane_positions[i] = lncfg->data[i].pos;
-		dphy_cfg->lane_polarities[i] = lncfg->data[i].pol;
-	}
+		/* Set data trio lane_mask and lane_polarities (no clock lane) */
+		for (i = 0; i < num_lanes; i++) {
+			cphy_cfg->lane_positions[i] = lncfg->data[i].pos;
+			cphy_cfg->lane_polarities[i] = lncfg->data[i].pol;
+		}
 
-	phy_set_mode(csiphy->phy, PHY_MODE_MIPI_DPHY);
+		ret = phy_set_mode(csiphy->phy, PHY_MODE_MIPI_CPHY);
+		if (ret) {
+			dev_err(dev, "failed to set MIPI C-PHY mode\n");
+			goto error;
+		}
 
-	ret = phy_configure(csiphy->phy, &dphy_opts);
-	if (ret) {
-		dev_err(dev, "failed to configure MIPI D-PHY\n");
-		goto error;
+		ret = phy_configure(csiphy->phy, &phy_opts);
+		if (ret) {
+			dev_err(dev, "failed to configure MIPI C-PHY\n");
+			goto error;
+		}
+	} else {
+		struct phy_configure_opts_mipi_dphy *dphy_cfg = &phy_opts.mipi_dphy;
+
+		phy_mipi_dphy_get_default_config_for_hsclk(link_freq, num_lanes,
+							   dphy_cfg);
+
+		/* Set clock lane id and polarity */
+		dphy_cfg->clock_lane_position = lncfg->clk.pos;
+		dphy_cfg->clock_lane_polarity = lncfg->clk.pol;
+
+		/* Set data lane_mask and lane_polarities */
+		for (i = 0; i < num_lanes; i++) {
+			dphy_cfg->lane_positions[i] = lncfg->data[i].pos;
+			dphy_cfg->lane_polarities[i] = lncfg->data[i].pol;
+		}
+
+		ret = phy_set_mode(csiphy->phy, PHY_MODE_MIPI_DPHY);
+		if (ret) {
+			dev_err(dev, "failed to set MIPI D-PHY mode\n");
+			goto error;
+		}
+
+		ret = phy_configure(csiphy->phy, &phy_opts);
+		if (ret) {
+			dev_err(dev, "failed to configure MIPI D-PHY\n");
+			goto error;
+		}
 	}
 
 	return phy_power_on(csiphy->phy);
@@ -375,10 +404,8 @@ error:
 }
 
 /*
- * csiphy_stream_off - Disable streaming on CSIPHY module
+ * csiphy_stream_off - Power off the CSIPHY generic-PHY provider
  * @csiphy: CSIPHY device
- *
- * Helper function to disable streaming on CSIPHY module
  */
 static void csiphy_stream_off(struct csiphy_device *csiphy)
 {
@@ -410,6 +437,11 @@ static int csiphy_set_stream_legacy(struct v4l2_subdev *sd, int enable)
  * @sd: CSIPHY V4L2 subdevice
  * @enable: Requested streaming state
  *
+ * Configure and power the generic-PHY provider at s_stream() time. The
+ * pipeline s_stream walk runs vfe -> csid -> csiphy -> sensor, so CSID's
+ * RX is configured before the CSIPHY receivers are enabled here, matching
+ * the legacy csiphy_lanes_enable() ordering.
+ *
  * Return 0 on success or a negative error code otherwise
  */
 static int csiphy_set_stream(struct v4l2_subdev *sd, int enable)
@@ -418,7 +450,7 @@ static int csiphy_set_stream(struct v4l2_subdev *sd, int enable)
 	int ret = 0;
 
 	if (enable)
-		ret = csiphy_stream_on(csiphy);
+		ret = csiphy_configure_and_power_on(csiphy);
 	else
 		csiphy_stream_off(csiphy);
 
