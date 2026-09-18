@@ -58,6 +58,7 @@
 #define CSID_CSI2_RDIN_IRQ_STATUS(rdi)	(0xEC + 0x10 * (rdi))
 #define		RUP_DONE_IRQ_STATUS		BIT(23)
 
+#define CSID_CSI2_RDIN_IRQ_MASK(rdi)	(0xF0 + 0x10 * (rdi))
 #define CSID_CSI2_RDIN_IRQ_CLEAR(rdi)	(0xF4 + 0x10 * (rdi))
 #define CSID_CSI2_RDIN_IRQ_SET(rdi)	(0xF8 + 0x10 * (rdi))
 
@@ -328,6 +329,8 @@ static int csid_reset(struct csid_device *csid)
 			writel(IRQ_CMD_CLEAR, csid->base + CSID_IRQ_CMD);
 			writel(BIT(BUF_DONE_IRQ_STATUS_RDI_OFFSET + i),
 			       csid->base + CSID_BUF_DONE_IRQ_MASK);
+			writel(RUP_DONE_IRQ_STATUS,
+			       csid->base + CSID_CSI2_RDIN_IRQ_MASK(i));
 		}
 
 	/* preserve registers */
