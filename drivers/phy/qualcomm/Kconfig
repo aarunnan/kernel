@@ -35,6 +35,7 @@ config PHY_QCOM_MIPI_CSI2
 	depends on COMMON_CLK
 	select GENERIC_PHY
 	select GENERIC_PHY_MIPI_DPHY
+	select GENERIC_PHY_MIPI_CPHY
 	help
 	  Enable this to support the MIPI CSI2 PHY driver found in various
 	  Qualcomm chipsets. This PHY is used to connect MIPI CSI2

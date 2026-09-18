@@ -166,7 +166,7 @@ csi2phy_dev_to_regs(struct mipi_csi2phy_device *csi2phy)
 	return &csi2phy->soc_cfg->reg_info;
 }
 
-static void phy_qcom_mipi_csi2_hw_version_read(struct mipi_csi2phy_device *csi2phy)
+void phy_qcom_mipi_csi2_hw_version_read(struct mipi_csi2phy_device *csi2phy)
 {
 	const struct mipi_csi2phy_device_regs *regs = csi2phy_dev_to_regs(csi2phy);
 	u32 tmp;
@@ -197,7 +197,7 @@ static void phy_qcom_mipi_csi2_hw_version_read(struct mipi_csi2phy_device *csi2p
  * phy_qcom_mipi_csi2_reset - Perform software reset on CSIPHY module
  * @phy_qcom_mipi_csi2: CSIPHY device
  */
-static void phy_qcom_mipi_csi2_reset(struct mipi_csi2phy_device *csi2phy)
+void phy_qcom_mipi_csi2_reset(struct mipi_csi2phy_device *csi2phy)
 {
 	const struct mipi_csi2phy_device_regs *regs = csi2phy_dev_to_regs(csi2phy);
 
@@ -440,6 +440,7 @@ static const struct mipi_csi2phy_lane_regs lane_regs_sa8775p[] = {
 static const char * const sa8775p_clks[] = {
 	"csiphy",
 	"csiphy_timer",
+	"csiphy_rx",
 };
 
 static const char * const sa8775p_supplies[] = {
@@ -454,6 +455,8 @@ const struct mipi_csi2phy_soc_cfg mipi_csi2_dphy_sa8775p = {
 		.lane_array_size = ARRAY_SIZE(lane_regs_sa8775p),
 		.common_regs_offset = 0x800,
 	},
+	.ops_cphy = &phy_qcom_mipi_csi2_ops_3ph_cphy,
+	.reg_info_cphy = &mipi_csi2_3ph_cphy_regs_sa8775p,
 	.supply_names = (const char **)sa8775p_supplies,
 	.num_supplies = ARRAY_SIZE(sa8775p_supplies),
 	.num_clk = ARRAY_SIZE(sa8775p_clks),
