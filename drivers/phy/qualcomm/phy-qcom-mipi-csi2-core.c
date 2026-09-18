@@ -32,32 +32,46 @@ phy_qcom_mipi_csi2_set_clock_rates(struct mipi_csi2phy_device *csi2phy,
 	unsigned long opp_rate = link_freq / 4;
 	struct dev_pm_opp *opp;
 	long timer_rate;
+	int i, pstate;
 	int ret;
 
-	opp = dev_pm_opp_find_freq_ceil(dev, &opp_rate);
-	if (IS_ERR(opp)) {
-		dev_err(csi2phy->dev, "Couldn't find ceiling for %lld Hz\n",
-			link_freq);
-		return PTR_ERR(opp);
-	}
+	/*
+	 * SoCs whose CSIPHY has no scaled power-domains (e.g. sa8775p, which
+	 * declares an empty genpd list) skip the OPP-driven perf-state path.
+	 */
+	if (csi2phy->pd_list && csi2phy->pd_list->num_pds) {
+		opp = dev_pm_opp_find_freq_ceil(dev, &opp_rate);
+		if (IS_ERR(opp)) {
+			dev_err(csi2phy->dev, "Couldn't find ceiling for %lld Hz\n",
+				link_freq);
+			return PTR_ERR(opp);
+		}
 
-	for (int i = 0; i < csi2phy->num_pds; i++) {
-		unsigned int perf = dev_pm_opp_get_required_pstate(opp, i);
+		pstate = 0;
+		for (i = 0; i < csi2phy->pd_list->num_pds; i++) {
+			unsigned int perf;
 
-		ret = dev_pm_genpd_set_performance_state(csi2phy->pds[i], perf);
+			if (!csi2phy->soc_cfg->genpds[i].scaled)
+				continue;
+
+			perf = dev_pm_opp_get_required_pstate(opp, pstate);
+			pstate += 1;
+
+			ret = dev_pm_genpd_set_performance_state(csi2phy->pd_list->pd_devs[i], perf);
+			if (ret) {
+				dev_err(csi2phy->dev, "Couldn't set perf state %u\n",
+					perf);
+				dev_pm_opp_put(opp);
+				return ret;
+			}
+		}
+		dev_pm_opp_put(opp);
+
+		ret = dev_pm_opp_set_rate(dev, opp_rate);
 		if (ret) {
-			dev_err(csi2phy->dev, "Couldn't set perf state %u\n",
-				perf);
-			dev_pm_opp_put(opp);
+			dev_err(csi2phy->dev, "dev_pm_opp_set_rate() fail\n");
 			return ret;
 		}
-	}
-	dev_pm_opp_put(opp);
-
-	ret = dev_pm_opp_set_rate(dev, opp_rate);
-	if (ret) {
-		dev_err(csi2phy->dev, "dev_pm_opp_set_rate() fail\n");
-		return ret;
 	}
 
 	timer_rate = clk_round_rate(csi2phy->timer_clk, link_freq / 4);
@@ -144,8 +158,14 @@ static int phy_qcom_mipi_csi2_power_off(struct phy *phy)
 	struct mipi_csi2phy_device *csi2phy = phy_get_drvdata(phy);
 	int i;
 
-	for (i = 0; i < csi2phy->num_pds; i++)
-		dev_pm_genpd_set_performance_state(csi2phy->pds[i], 0);
+	if (csi2phy->pd_list) {
+		for (i = 0; i < csi2phy->pd_list->num_pds; i++) {
+			if (!csi2phy->soc_cfg->genpds[i].scaled)
+				continue;
+
+			dev_pm_genpd_set_performance_state(csi2phy->pd_list->pd_devs[i], 0);
+		}
+	}
 
 	clk_bulk_disable_unprepare(csi2phy->soc_cfg->num_clk,
 				   csi2phy->clks);
@@ -177,9 +197,41 @@ static struct phy *qcom_csi2_phy_xlate(struct device *dev,
 	return csi2phy->phy;
 }
 
+static int phy_qcom_mipi_csi2_attach_pm_domains(struct mipi_csi2phy_device *csi2phy)
+{
+	struct dev_pm_domain_attach_data pd_data = { 0 };
+	const char **pd_names;
+	int i;
+
+	/*
+	 * SoCs whose CSIPHY has no dedicated power-domains (e.g. sa8775p)
+	 * declare an empty genpd list. Unlike the upstream x1e80100 driver,
+	 * which requires at least one power-domain, we tolerate a zero-length
+	 * list here: devm_pm_domain_attach_list() returns 0 and leaves
+	 * pd_list NULL, and the clock-rate/power paths guard on pd_list.
+	 */
+	if (!csi2phy->soc_cfg->num_genpds)
+		return 0;
+
+	pd_names = devm_kzalloc(csi2phy->dev,
+				sizeof(char *) * csi2phy->soc_cfg->num_genpds,
+				GFP_KERNEL);
+	if (!pd_names)
+		return -ENOMEM;
+
+	for (i = 0; i < csi2phy->soc_cfg->num_genpds; i++)
+		pd_names[i] = csi2phy->soc_cfg->genpds[i].name;
+
+	pd_data.pd_names = pd_names;
+	pd_data.num_pd_names = csi2phy->soc_cfg->num_genpds;
+
+	return devm_pm_domain_attach_list(csi2phy->dev, &pd_data,
+					  &csi2phy->pd_list);
+}
+
 static int phy_qcom_mipi_csi2_probe(struct platform_device *pdev)
 {
-	unsigned int i, num_clk, num_supplies, num_pds;
+	unsigned int i, num_clk, num_supplies;
 	struct mipi_csi2phy_device *csi2phy;
 	struct phy_provider *phy_provider;
 	struct device *dev = &pdev->dev;
@@ -199,41 +251,30 @@ static int phy_qcom_mipi_csi2_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	num_clk = csi2phy->soc_cfg->num_clk;
-	csi2phy->clks = devm_kzalloc(dev, sizeof(*csi2phy->clks) * num_clk, GFP_KERNEL);
-	if (!csi2phy->clks)
-		return -ENOMEM;
 
-	num_pds = csi2phy->soc_cfg->num_genpd_names;
-	if (!num_pds)
-		return -EINVAL;
+	ret = phy_qcom_mipi_csi2_attach_pm_domains(csi2phy);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "Failed to attach power-domain list\n");
 
-	csi2phy->pds = devm_kzalloc(dev, sizeof(*csi2phy->pds) * num_pds, GFP_KERNEL);
-	if (!csi2phy->pds)
-		return -ENOMEM;
-
-	for (i = 0; i < num_pds; i++) {
-		csi2phy->pds[i] = dev_pm_domain_attach_by_name(dev,
-							       csi2phy->soc_cfg->genpd_names[i]);
-		if (IS_ERR(csi2phy->pds[i])) {
-			return dev_err_probe(dev, PTR_ERR(csi2phy->pds[i]),
-					     "Failed to attach %s\n",
-					     csi2phy->soc_cfg->genpd_names[i]);
-		}
-	}
-	csi2phy->num_pds = num_pds;
-
-	for (i = 0; i < num_clk; i++)
-		csi2phy->clks[i].id = csi2phy->soc_cfg->clk_names[i];
-
-	ret = devm_clk_bulk_get(dev, num_clk, csi2phy->clks);
-	if (ret)
+	ret = devm_clk_bulk_get_all(dev, &csi2phy->clks);
+	if (ret < 0)
 		return dev_err_probe(dev, ret, "Failed to get clocks\n");
 
-	csi2phy->timer_clk = devm_clk_get(dev, csi2phy->soc_cfg->timer_clk);
-	if (IS_ERR(csi2phy->timer_clk)) {
-		return dev_err_probe(dev, PTR_ERR(csi2phy->timer_clk),
-				     "Failed to get timer clock\n");
+	if (num_clk != ret)
+		return dev_err_probe(dev, -ENODEV, "clock count %d expected %d\n",
+				     ret, num_clk);
+
+	for (i = 0; i < num_clk; i++) {
+		if (!csi2phy->clks[i].id)
+			return dev_err_probe(dev, -EINVAL, "Missing clock-names\n");
+
+		if (!strcmp(csi2phy->clks[i].id, csi2phy->soc_cfg->timer_clk)) {
+			csi2phy->timer_clk = csi2phy->clks[i].clk;
+			break;
+		}
 	}
+	if (!csi2phy->timer_clk)
+		return dev_err_probe(dev, -ENODEV, "no timer clock\n");
 
 	ret = devm_pm_opp_set_clkname(dev, csi2phy->soc_cfg->opp_clk);
 	if (ret)
@@ -278,6 +319,7 @@ static int phy_qcom_mipi_csi2_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id phy_qcom_mipi_csi2_of_match_table[] = {
+	{ .compatible	= "qcom,sa8775p-csi2-phy", .data = &mipi_csi2_dphy_sa8775p },
 	{ .compatible	= "qcom,x1e80100-csi2-phy", .data = &mipi_csi2_dphy_4nm_x1e },
 	{ }
 };

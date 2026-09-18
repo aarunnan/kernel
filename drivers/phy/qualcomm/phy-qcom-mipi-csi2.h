@@ -9,6 +9,7 @@
 #define __PHY_QCOM_MIPI_CSI2_H__
 
 #include <linux/phy/phy.h>
+#include <linux/pm_domain.h>
 
 #define CSI2_MAX_DATA_LANES 4
 
@@ -52,6 +53,22 @@ struct mipi_csi2phy_device_regs {
 	const u32 common_regs_offset;
 };
 
+/**
+ * struct mipi_csi2_genpd - named power-domain descriptor
+ * @name: power-domain name, as declared in power-domain-names
+ * @scaled: whether this domain takes an OPP-driven performance state
+ *
+ * The driver attaches to every named power-domain via
+ * devm_pm_domain_attach_list(), but only the @scaled ones (e.g. the RPMHPD
+ * voltage rails) get a performance state programmed from the OPP table; the
+ * unscaled ones (e.g. a GDSC) are only kept enabled. SoCs with no dedicated
+ * power-domains (e.g. sa8775p) declare an empty list.
+ */
+struct mipi_csi2_genpd {
+	const char *name;
+	bool scaled;
+};
+
 struct mipi_csi2phy_soc_cfg {
 	const struct mipi_csi2phy_hw_ops *ops;
 	const struct mipi_csi2phy_device_regs reg_info;
@@ -59,14 +76,13 @@ struct mipi_csi2phy_soc_cfg {
 	const char ** const supply_names;
 	const unsigned int num_supplies;
 
-	const char ** const clk_names;
 	const unsigned int num_clk;
 
 	const char * const opp_clk;
 	const char * const timer_clk;
 
-	const char ** const genpd_names;
-	const unsigned int num_genpd_names;
+	const struct mipi_csi2_genpd *genpds;
+	const unsigned int num_genpds;
 };
 
 struct mipi_csi2phy_device {
@@ -81,8 +97,7 @@ struct mipi_csi2phy_device {
 	u32 timer_clk_rate;
 
 	struct regulator_bulk_data *supplies;
-	struct device **pds;
-	unsigned int num_pds;
+	struct dev_pm_domain_list *pd_list;
 
 	const struct mipi_csi2phy_soc_cfg *soc_cfg;
 	struct mipi_csi2phy_stream_cfg stream_cfg;
@@ -91,5 +106,7 @@ struct mipi_csi2phy_device {
 };
 
 extern const struct mipi_csi2phy_soc_cfg mipi_csi2_dphy_4nm_x1e;
+extern const struct mipi_csi2phy_soc_cfg mipi_csi2_dphy_sa8775p;
+extern const struct mipi_csi2phy_hw_ops phy_qcom_mipi_csi2_ops_3ph_1_0;
 
 #endif /* __PHY_QCOM_MIPI_CSI2_H__ */
